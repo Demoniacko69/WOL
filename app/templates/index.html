@@ -1,0 +1,192 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WOL Server</title>
+  <style>
+    :root {
+      --bg: #f2f4f7;
+      --card: #ffffff;
+      --text: #14213d;
+      --muted: #4f5d75;
+      --accent: #e07a5f;
+      --line: #d9e2ec;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: radial-gradient(circle at top right, #fef3c7, #f2f4f7 45%);
+      color: var(--text);
+    }
+    .container {
+      max-width: 980px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 10px 30px rgba(20, 33, 61, 0.08);
+    }
+    h1, h2 { margin: 0 0 12px; }
+    p { color: var(--muted); }
+    form { display: grid; gap: 8px; grid-template-columns: 1fr 1fr 1fr auto; }
+    input, button {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+    button {
+      background: var(--accent);
+      border: 0;
+      color: white;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 8px;
+      vertical-align: top;
+    }
+    code {
+      background: #edf2f7;
+      border-radius: 6px;
+      padding: 2px 6px;
+    }
+    .actions { display: flex; gap: 8px; }
+    .muted { color: var(--muted); }
+    #result { margin-top: 10px; font-weight: 600; }
+    @media (max-width: 780px) {
+      form { grid-template-columns: 1fr; }
+      .actions { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Wake-On-LAN Server</h1>
+      <p>Servicio HTTP para despertar equipos en la LAN con paquete magico UDP broadcast.</p>
+      <p class="muted">Documentacion interactiva: <a href="/docs">/docs</a></p>
+    </div>
+
+    <div class="card">
+      <h2>Enviar WOL manual</h2>
+      <form id="wakeForm">
+        <input id="mac" name="mac" placeholder="MAC (AA:BB:CC:DD:EE:FF)" required>
+        <input id="broadcast" name="broadcast" placeholder="Broadcast(s) coma-separados" value="{{ default_broadcast }}">
+        <input disabled placeholder="Puerto UDP 9 (fijo)">
+        <button type="submit">Despertar</button>
+      </form>
+      <div id="result"></div>
+    </div>
+
+    <div class="card">
+      <h2>Dispositivos configurados</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>MAC</th>
+            <th>IP</th>
+            <th>Broadcasts</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in devices %}
+          <tr>
+            <td>{{ d.id }}</td>
+            <td>{{ d.name }}</td>
+            <td><code>{{ d.mac }}</code></td>
+            <td>{{ d.ip or '-' }}</td>
+            <td>{{ d.broadcasts | join(', ') }}</td>
+            <td>
+              <div class="actions">
+                <button onclick="wakeSaved('{{ d.mac }}', '{{ d.broadcasts | join(',') }}')">Wake</button>
+                <button onclick="checkStatus('{{ d.id }}')">Status</button>
+                <button onclick="deleteDevice('{{ d.id }}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">No hay dispositivos aun.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const result = document.getElementById('result');
+
+    async function callApi(path, method, body) {
+      const res = await fetch(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || 'Error en la API');
+      }
+      return data;
+    }
+
+    document.getElementById('wakeForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const mac = document.getElementById('mac').value.trim();
+      const bcastRaw = document.getElementById('broadcast').value.trim();
+      const broadcasts = bcastRaw.split(',').map(x => x.trim()).filter(Boolean);
+
+      try {
+        const payload = { mac, broadcast: broadcasts.length > 1 ? broadcasts : broadcasts[0] };
+        const data = await callApi('/wake', 'POST', payload);
+        result.textContent = data.message + ' -> ' + data.data.broadcasts.join(', ');
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    });
+
+    async function wakeSaved(mac, bcastsCsv) {
+      const broadcasts = bcastsCsv.split(',').map(x => x.trim()).filter(Boolean);
+      try {
+        await callApi('/wake', 'POST', { mac, broadcast: broadcasts });
+        result.textContent = 'Wake enviado a ' + mac;
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    }
+
+    async function checkStatus(id) {
+      try {
+        const data = await callApi('/status/' + id, 'GET');
+        result.textContent = 'Host ' + id + ': ' + data.data.status;
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    }
+
+    async function deleteDevice(id) {
+      try {
+        await callApi('/devices/' + id, 'DELETE');
+        location.reload();
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    }
+  </script>
+</body>
+</html>
