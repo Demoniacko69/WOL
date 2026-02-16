@@ -93,6 +93,18 @@
     </div>
 
     <div class="card">
+      <h2>Agregar dispositivo</h2>
+      <form id="deviceForm">
+        <input id="deviceName" name="name" placeholder="Nombre (ej: NAS)" required>
+        <input id="deviceMac" name="mac" placeholder="MAC (AA:BB:CC:DD:EE:FF)" required>
+        <input id="deviceIp" name="ip" placeholder="IP o hostname (opcional)">
+        <input id="deviceBroadcasts" name="broadcasts" placeholder="Broadcast(s) coma-separados" value="{{ default_broadcast }}">
+        <input id="deviceShutdownUrl" name="shutdown_url" placeholder="URL de apagado (opcional)">
+        <button type="submit">Guardar dispositivo</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2>Dispositivos configurados</h2>
       <table>
         <thead>
@@ -155,6 +167,30 @@
         const payload = { mac, broadcast: broadcasts.length > 1 ? broadcasts : broadcasts[0] };
         const data = await callApi('/wake', 'POST', payload);
         result.textContent = data.message + ' -> ' + data.data.broadcasts.join(', ');
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    });
+
+    document.getElementById('deviceForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('deviceName').value.trim();
+      const mac = document.getElementById('deviceMac').value.trim();
+      const ip = document.getElementById('deviceIp').value.trim();
+      const bcastRaw = document.getElementById('deviceBroadcasts').value.trim();
+      const shutdownUrl = document.getElementById('deviceShutdownUrl').value.trim();
+      const broadcasts = bcastRaw.split(',').map(x => x.trim()).filter(Boolean);
+
+      try {
+        await callApi('/devices', 'POST', {
+          name,
+          mac,
+          ip: ip || null,
+          broadcasts: broadcasts.length ? broadcasts : null,
+          shutdown_url: shutdownUrl || null
+        });
+        result.textContent = 'Dispositivo guardado correctamente';
+        location.reload();
       } catch (err) {
         result.textContent = err.message;
       }
